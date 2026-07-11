@@ -2,7 +2,7 @@
 # 使用官方 Playwright 镜像（Ubuntu jammy，glibc）：内置 Chromium 与全部系统依赖。
 # 构建与运行同族镜像，保证 bcrypt / Prisma 等原生模块 ABI 一致（不可用 alpine musl 构建后拷进来）。
 # 版本需与 package.json 的 playwright 版本对齐（当前 1.61.x）。
-FROM mcr.microsoft.com/playwright:v1.61.1-jammy AS builder
+FROM mcr.microsoft.com/playwright:v1.61.1-noble AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ RUN pnpm build
 RUN CI=true pnpm prune --prod
 
 # Production stage
-FROM mcr.microsoft.com/playwright:v1.61.1-jammy
+FROM mcr.microsoft.com/playwright:v1.61.1-noble
 
 WORKDIR /app
 
