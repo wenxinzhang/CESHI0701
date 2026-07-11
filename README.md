@@ -10,7 +10,7 @@
 ![NestJS](https://img.shields.io/badge/NestJS-11-e0234e)
 ![Prisma](https://img.shields.io/badge/Prisma-6-2d3748)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6)
-![License](https://img.shields.io/badge/License-Private-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 </div>
 
@@ -211,7 +211,7 @@ npm run preview         # 预览构建产物
 
 ## 📄 许可证
 
-本项目为私有项目，版权归属项目所属单位，未经授权不得复制、分发或用于商业用途。
+本项目基于 [MIT License](LICENSE) 开源，允许自由使用、复制、修改、合并、发布、分发，**可用于商业用途，可二次开发**。使用时请保留原始版权声明与许可声明。
 
 
 
