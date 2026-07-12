@@ -74,6 +74,7 @@
   import { ElDialog, ElTabs, ElTabPane, ElMessage, ElMessageBox } from 'element-plus'
   import { useModelConfigStore } from '@/store/modules/modelConfig'
   import { useAgentMemoryStore } from '@/store/modules/agentMemory'
+  import { useAgentToolStore } from '@/store/modules/agentTool'
   import { testProviderConnection } from '@/api/modelConfig'
   import type { ModelConfig, ModelProviderConfig } from '@/types/model'
   import ModelCardList, { type ModelCardItem } from './model-config/ModelCardList.vue'
@@ -97,6 +98,7 @@
 
   const store = useModelConfigStore()
   const agentMemoryStore = useAgentMemoryStore()
+  const agentToolStore = useAgentToolStore()
 
   /** 当前激活的设置页签 */
   const activeTab = ref('model')
@@ -106,6 +108,10 @@
   // 故对话侧新提交的待确认记忆在重开弹窗后不会自动出现——这里补一次刷新兜住。
   watch(activeTab, (tab) => {
     if (tab === 'memory') void agentMemoryStore.fetchAll()
+    // 工具权限：每次切到该页签重新拉取工具清单/统计/分类。
+    // 与 MemoryCenter 同理——ElDialog 默认不销毁内容，Tab 内 onMounted 只触发一次，
+    // 且聊天面板挂载后异步同步的注册表工具需在此刷新可见，故切换时兜一次 init。
+    if (tab === 'tools') void agentToolStore.init()
   })
 
   /** 当前选中的模型 ID（null 表示未选中或处于新增态） */

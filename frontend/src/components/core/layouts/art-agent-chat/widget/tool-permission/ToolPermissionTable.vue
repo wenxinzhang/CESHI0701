@@ -64,20 +64,22 @@
           />
         </template>
       </ElTableColumn>
-      <ElTableColumn label="操作" width="180">
+      <ElTableColumn label="操作" width="210">
         <template #default="{ row }">
-          <ElButton type="primary" size="small" link @click="emit('config', row as AgentTool)">配置</ElButton>
-          <ElButton type="primary" size="small" link @click="emit('test', row as AgentTool)">测试</ElButton>
-          <ElButton type="primary" size="small" link @click="emit('log', row as AgentTool)">日志</ElButton>
-          <ElDropdown trigger="click" @command="(cmd: string) => onMore(cmd, row as AgentTool)">
-            <ElButton type="primary" size="small" link>更多<i class="iconfont-sys tt-more">&#xe6df;</i></ElButton>
-            <template #dropdown>
-              <ElDropdownMenu>
-                <ElDropdownItem command="duplicate">复制工具</ElDropdownItem>
-                <ElDropdownItem command="disable" divided>{{ (row as AgentTool).enabled ? '禁用' : '启用' }}</ElDropdownItem>
-              </ElDropdownMenu>
-            </template>
-          </ElDropdown>
+          <div class="tt-op-cell">
+            <ElButton type="primary" size="small" link @click="emit('config', row as AgentTool)">配置</ElButton>
+            <ElButton type="primary" size="small" link @click="emit('test', row as AgentTool)">测试</ElButton>
+            <ElButton type="primary" size="small" link @click="emit('log', row as AgentTool)">日志</ElButton>
+            <ElDropdown trigger="click" @command="(cmd: string) => onMore(cmd, row as AgentTool)">
+              <ElButton type="primary" size="small" link>更多<i class="iconfont-sys tt-more">&#xe6df;</i></ElButton>
+              <template #dropdown>
+                <ElDropdownMenu>
+                  <ElDropdownItem command="duplicate">复制工具</ElDropdownItem>
+                  <ElDropdownItem command="disable" divided>{{ (row as AgentTool).enabled ? '禁用' : '启用' }}</ElDropdownItem>
+                </ElDropdownMenu>
+              </template>
+            </ElDropdown>
+          </div>
         </template>
       </ElTableColumn>
       <template #empty>暂无工具</template>
@@ -236,6 +238,19 @@
 
     .tt-name {
       font-weight: 500;
+    }
+
+    // 操作列：四个操作项单行排列，不换行、间距均匀
+    .tt-op-cell {
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 4px;
+      white-space: nowrap;
+
+      :deep(.el-button + .el-button) {
+        margin-left: 0;
+      }
     }
 
     .tt-more {

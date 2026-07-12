@@ -92,10 +92,17 @@ export class PlaywrightService implements OnModuleDestroy {
       page.on('dialog', (d) => void d.dismiss().catch(() => undefined));
 
       await page.goto(target, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+
+      // SSRF 防重定向：初始 URL 已校验，但服务端 3xx 可能把我们导向内网（如云元数据 169.254.169.254）。
+      // page.goto 会自动跟随重定向，故在此对「最终落地 URL」二次校验，命中内网则不抽取、不返回正文，
+      // 阻断响应体外泄。（多跳中间经过的内网地址属残留盲 SSRF，风险低：无响应返回。）
+      const finalUrl = page.url();
+      if (finalUrl && finalUrl !== target) {
+        await assertSafePublicUrl(finalUrl);
+      }
+
       // 再等网络大致空闲，给 JS 渲染留时间（超时不致命，能抽多少算多少）
       await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => undefined);
-
-      const finalUrl = page.url();
       const title = await page.title().catch(() => '');
 
       // 优先按站点选择器聚焦正文，回退到整页可见文本

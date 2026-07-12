@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma.service';
 import { SecurityCheckService } from '@/modules/security-policy/services/security-check.service';
 import { TOOL_TYPES, TOOL_HIGH_RISK_LEVELS } from '../catalog/agent-tool.enums';
@@ -32,7 +32,7 @@ const TOOL_TYPE_TO_ACTION: Record<string, string> = {
  * 启动时幂等 seed 7 条示例工具（对齐前端 mockAgentTools）。
  */
 @Injectable()
-export class AgentToolService implements OnModuleInit {
+export class AgentToolService {
   private readonly logger = new Logger(AgentToolService.name);
 
   constructor(
@@ -40,31 +40,9 @@ export class AgentToolService implements OnModuleInit {
     private readonly securityCheck: SecurityCheckService,
   ) {}
 
-  /** 启动时幂等初始化示例工具（表为空时写入） */
-  async onModuleInit(): Promise<void> {
-    try {
-      if ((await this.prisma.sysAgentTool.count()) > 0) return;
-      await this.seedTools();
-      this.logger.log('已初始化示例工具');
-    } catch (e) {
-      this.logger.error(`工具种子初始化失败: ${(e as Error).message}`);
-    }
-  }
-
-  /** 幂等 seed 7 条示例工具 */
-  private async seedTools(): Promise<void> {
-    await this.prisma.sysAgentTool.createMany({
-      data: [
-        { toolKey: 'backend-generator', name: 'backend-generator', type: 'cli', description: '基于模板生成后端项目结构与代码', riskLevel: 'L3', enabled: true, requireConfirm: true, applicableAgents: ['AG-UI 智能体'], config: { command: 'npm run generate:backend -- --module {{moduleName}}', workDir: '/workspace/project', timeout: 60 }, sort: 1 },
-        { toolKey: 'page-generator', name: 'page-generator', type: 'cli', description: '根据需求生成前端页面代码并预览', riskLevel: 'L2', enabled: true, requireConfirm: false, applicableAgents: ['AG-UI 智能体'], config: { command: 'npm run generate:page -- --name {{pageName}}', timeout: 45 }, sort: 2 },
-        { toolKey: 'database-query', name: 'database-query', type: 'database', description: '执行只读 SQL 查询并返回结果', riskLevel: 'L1', enabled: true, requireConfirm: false, applicableAgents: ['AG-UI 智能体'], config: { scope: 'read', maxRows: 1000, sqlTimeout: 10 }, sort: 3 },
-        { toolKey: 'file-writer', name: 'file-writer', type: 'filesystem', description: '在指定路径写入或更新文件内容', riskLevel: 'L2', enabled: true, requireConfirm: false, applicableAgents: ['AG-UI 智能体'], config: { allowWrite: true, allowDelete: false, maxFileSize: 5 }, sort: 4 },
-        { toolKey: 'user-api', name: 'user-api', type: 'api', description: '获取用户信息与权限数据', riskLevel: 'L1', enabled: true, requireConfirm: false, applicableAgents: ['AG-UI 智能体'], config: { method: 'GET', url: '/api/user/info', timeout: 15 }, sort: 5 },
-        { toolKey: 'browser-control', name: 'browser-control', type: 'browser', description: '允许智能体控制页面点击、输入、跳转', riskLevel: 'L3', enabled: true, requireConfirm: true, applicableAgents: ['AG-UI 智能体'], config: { allowClick: true, allowInput: true, allowNavigate: true }, sort: 6 },
-        { toolKey: 'department-create-api', name: 'department-create-api', type: 'api', description: '创建或编辑部门数据', riskLevel: 'L2', enabled: false, requireConfirm: true, applicableAgents: ['AG-UI 智能体'], config: { method: 'POST', url: '/api/department/save', allowWrite: true }, sort: 7 },
-      ],
-    });
-  }
+  // onModuleInit 的 mock 种子已移除：工具清单改由前端注册表同步（syncRegistry）填充真实工具，
+  // 避免 7 条示例工具与实际可调用工具混淆。旧库残留的示例工具由 seedTools 不再触发，
+  // 需要清理时可在工具页手动删除。seedTools 保留仅作历史参考，不再被调用。
 
   /** 工具列表（筛选 + 分页） */
   async listWithFilter(filter: ToolListFilter) {
@@ -169,6 +147,86 @@ export class AgentToolService implements OnModuleInit {
     return TOOL_TYPES.map((key) => ({ key, count: map.get(key) ?? 0 }));
   }
 
+  /**
+   * 同步前端注册表工具清单（幂等 upsert）。
+   *
+   * 前端聊天面板挂载时上报当前注册表里真实可调用的工具。按 toolKey 合并：
+   * - 新工具：插入，enabled 默认 true（新工具默认可用）；
+   * - 已存在：仅更新 name/type/description/riskLevel/requireConfirm/source，
+   *   **保留管理员在页面设置的 enabled 开关**（不覆盖用户的启停选择）。
+   * 均标记 source=registry，与手动新建（manual）区分。
+   * @param tools 注册表工具清单
+   * @returns 同步统计 { synced, created, updated }
+   */
+  async syncRegistry(
+    tools: Array<{
+      toolKey: string;
+      name: string;
+      type: string;
+      description?: string;
+      riskLevel?: string;
+      requireConfirm?: boolean;
+    }>,
+  ): Promise<{ synced: number; created: number; updated: number }> {
+    let created = 0;
+    let updated = 0;
+    for (const t of tools) {
+      const exists = await this.prisma.sysAgentTool.findUnique({
+        where: { toolKey: t.toolKey },
+        select: { id: true },
+      });
+      if (exists) {
+        // 保留 enabled（管理员选择）与 sort/applicableAgents/config，仅刷新元信息
+        await this.prisma.sysAgentTool.update({
+          where: { toolKey: t.toolKey },
+          data: {
+            name: t.name,
+            type: t.type,
+            description: t.description ?? null,
+            riskLevel: t.riskLevel ?? 'L1',
+            requireConfirm: t.requireConfirm ?? false,
+            source: 'registry',
+          },
+        });
+        updated++;
+      } else {
+        await this.prisma.sysAgentTool.create({
+          data: {
+            toolKey: t.toolKey,
+            name: t.name,
+            type: t.type,
+            description: t.description ?? null,
+            riskLevel: t.riskLevel ?? 'L1',
+            enabled: true,
+            requireConfirm: t.requireConfirm ?? false,
+            applicableAgents: [],
+            config: {},
+            source: 'registry',
+            sort: 0,
+          },
+        });
+        created++;
+      }
+    }
+    this.logger.log(`注册表工具同步完成：共 ${tools.length}，新增 ${created}，更新 ${updated}`);
+    return { synced: tools.length, created, updated };
+  }
+
+  /**
+   * 返回工具治理映射：toolKey → { enabled, requireConfirm }。
+   * 供前端下发前过滤禁用工具、并按治理设置覆盖"需确认"。
+   */
+  async getGovernance(): Promise<Record<string, { enabled: boolean; requireConfirm: boolean }>> {
+    const rows = await this.prisma.sysAgentTool.findMany({
+      select: { toolKey: true, enabled: true, requireConfirm: true },
+    });
+    const map: Record<string, { enabled: boolean; requireConfirm: boolean }> = {};
+    for (const r of rows) {
+      map[r.toolKey] = { enabled: r.enabled, requireConfirm: r.requireConfirm };
+    }
+    return map;
+  }
+
   /** 记录一次工具调用日志（按 toolKey 反查工具 ID） */
   async recordCall(
     data: { toolKey: string; agent?: string; skill?: string; params?: Record<string, unknown>; success: boolean; durationMs?: number },
@@ -190,7 +248,7 @@ export class AgentToolService implements OnModuleInit {
     });
   }
 
-  /** 某工具的调用日志分页列表 */
+  /** 某工具的调用日志分页列表（映射为前端展示结构：含操作人名、格式化时间/耗时） */
   async callLogList(toolKey: string, page = 1, pageSize = 10) {
     const p = Math.max(page, 1);
     const ps = Math.min(Math.max(pageSize, 1), 100);
@@ -203,7 +261,39 @@ export class AgentToolService implements OnModuleInit {
       }),
       this.prisma.sysAgentToolCallLog.count({ where: { toolKey } }),
     ]);
-    return { list, pagination: { page: p, pageSize: ps, total } };
+
+    // 批量取操作人姓名，避免 N+1；operatorId 可能为空
+    const operatorIds = [...new Set(list.map((x) => x.operatorId).filter((x): x is number => x != null))];
+    const users = operatorIds.length
+      ? await this.prisma.sysUser.findMany({
+          where: { id: { in: operatorIds } },
+          select: { id: true, name: true, nickName: true, username: true },
+        })
+      : [];
+    const nameById = new Map(users.map((u) => [u.id, u.name || u.nickName || u.username || '-']));
+
+    const mapped = list.map((x) => ({
+      id: String(x.id),
+      toolKey: x.toolKey,
+      time: this.formatTime(x.createTime),
+      agent: x.agent || '-',
+      skill: x.skill || '-',
+      params: x.params != null ? JSON.stringify(x.params) : '-',
+      success: x.success,
+      duration: `${(x.durationMs / 1000).toFixed(2)}s`,
+      operator: x.operatorId != null ? (nameById.get(x.operatorId) ?? '-') : '-',
+    }));
+
+    return { list: mapped, pagination: { page: p, pageSize: ps, total } };
+  }
+
+  /** 格式化时间为 YYYY-MM-DD HH:mm:ss */
+  private formatTime(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return (
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    );
   }
 
   /**

@@ -14,9 +14,10 @@ import { useAiChatStore } from '@/store/modules/aiChat'
 import { useModelConfigStore } from '@/store/modules/modelConfig'
 import { useAgentChatSettingStore } from '@/store/modules/agentChatSetting'
 import { useUserStore } from '@/store/modules/user'
-import { getActionByWireName, toToolDefinitions } from '@/agent/frontend-action-registry'
+import { getActionByWireName, toToolDefinitions, getToolGovernance } from '@/agent/frontend-action-registry'
 import { getPageContext } from '@/agent/page-context'
 import { requestConfirmation } from '@/agent/action-confirmation'
+import { recordToolCall } from '@/api/agentTool'
 import type { AgUiModelContext, AiToolCall } from '@/types/aiChat'
 
 /** 一轮对话内工具执行的最大续跑次数，防止模型与工具无限往返 */
@@ -230,8 +231,10 @@ export function useAgUiAgent() {
       return { content: JSON.stringify({ success: false, message: '参数解析失败' }), cancelled: false }
     }
 
-    // 高风险操作：弹确认卡片，等待用户决策
-    if (action.requireConfirmation) {
+    // 高风险操作：弹确认卡片，等待用户决策。
+    // 治理侧（工具权限页）可将某工具标记为"需确认"，覆盖代码里的默认值 → 二者取或。
+    const govRequireConfirm = getToolGovernance(action.name)?.requireConfirm === true
+    if (action.requireConfirmation || govRequireConfirm) {
       store.setToolCallStatus(tc.id, 'awaiting-confirmation')
       const userStore = useUserStore()
       const confirmed = await requestConfirmation({
@@ -250,16 +253,29 @@ export function useAgUiAgent() {
 
     // 执行
     store.setToolCallStatus(tc.id, 'executing')
+    const startedAt = Date.now()
+    // 上报一次调用日志：成功/失败均记录，失败不阻断主流程（fire-and-forget）
+    const report = (success: boolean) => {
+      void recordToolCall({
+        toolKey: action.name,
+        agent: 'AG-UI 智能体',
+        params: args,
+        success,
+        durationMs: Date.now() - startedAt
+      }).catch(() => undefined)
+    }
     try {
       const res = await action.execute(args)
       store.setToolCallResult(tc.id, {
         result: JSON.stringify(res),
         status: res.success ? 'success' : 'error'
       })
+      report(res.success === true)
       return { content: JSON.stringify(res), cancelled: false }
     } catch (e) {
       const msg = (e as Error)?.message || '执行失败'
       store.setToolCallResult(tc.id, { error: msg, status: 'error' })
+      report(false)
       return { content: JSON.stringify({ success: false, message: msg }), cancelled: false }
     }
   }

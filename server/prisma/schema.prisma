@@ -958,6 +958,8 @@ model SysAgentTool {
   applicableAgents Json?
   /// 按类型不同的专属配置（JSON）
   config           Json
+  /// 来源：manual=手动新建 / registry=前端注册表同步（区分真实运行时工具与手动配置项）
+  source           String   @default("manual") @db.VarChar(16)
   /// 排序值（升序）
   sort             Int      @default(0)
   /// 租户 ID

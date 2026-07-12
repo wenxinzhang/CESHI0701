@@ -12,6 +12,7 @@ import type {
   ToolCallLog
 } from '@/components/core/layouts/art-agent-chat/widget/tool-permission/types'
 import * as api from '@/api/agentTool'
+import { refreshToolGovernance } from '@/agent/tool-governance'
 
 /** 工具筛选条件 */
 interface ToolFilter {
@@ -156,6 +157,8 @@ export const useAgentToolStore = defineStore('agentTool', () => {
     const tool = allTools.value.find((t) => t.id === id)
     if (tool) tool.enabled = enabled
     await refreshStats()
+    // 同步治理映射，使智能体可见工具即时随开关变化
+    void refreshToolGovernance()
   }
 
   /** 新建或更新工具（调 API 后重拉列表与统计） */
@@ -167,6 +170,7 @@ export const useAgentToolStore = defineStore('agentTool', () => {
       await api.addTool(payload)
     }
     await reload()
+    void refreshToolGovernance()
   }
 
   /** 重拉工具列表 + 统计 + 分类 */
@@ -185,6 +189,7 @@ export const useAgentToolStore = defineStore('agentTool', () => {
   async function removeTool(id: string): Promise<void> {
     await api.deleteTool(Number(id))
     await reload()
+    void refreshToolGovernance()
   }
 
   /** 刷新统计（切换启用后同步顶部卡片） */

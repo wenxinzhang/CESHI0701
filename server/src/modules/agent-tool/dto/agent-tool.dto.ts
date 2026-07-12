@@ -9,19 +9,24 @@ import {
   Matches,
   IsIn,
   Min,
+  ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TOOL_TYPES, TOOL_RISK_LEVELS } from '../catalog/agent-tool.enums';
 
-/** 工具键校验：小写字母开头，仅含小写字母/数字/连字符 */
-const TOOL_KEY_RULE = /^[a-z][a-z0-9-]*$/;
+/** 注册表工具键校验：字母开头，允许字母/数字/点/下划线/连字符（如 ui.openWeb、memory.suggest） */
+const REGISTRY_KEY_RULE = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
 /** 新建工具入参 */
 export class CreateToolDto {
-  @ApiProperty({ description: '工具唯一键（kebab-case）' })
+  @ApiProperty({ description: '工具唯一键（命名空间点号/下划线/连字符，如 ui.openWeb）' })
   @IsString()
   @MaxLength(64)
-  @Matches(TOOL_KEY_RULE, { message: '工具键须为 kebab-case（小写字母开头，仅含小写字母/数字/连字符）' })
+  @Matches(REGISTRY_KEY_RULE, {
+    message: '工具键格式非法（须字母开头，仅含字母/数字/点/下划线/连字符）'
+  })
   toolKey: string;
 
   @ApiProperty({ description: '工具名称' })
@@ -209,5 +214,51 @@ export class ToolCheckDto {
   @IsOptional()
   @IsObject()
   payload?: Record<string, unknown>;
+}
+
+/** 注册表单个工具项（前端上报） */
+export class RegistryToolItemDto {
+  @ApiProperty({ description: '工具唯一键（如 ui.openWeb / memory.suggest）' })
+  @IsString()
+  @MaxLength(64)
+  @Matches(REGISTRY_KEY_RULE, { message: '工具键格式非法（须字母开头，仅含字母/数字/点/下划线/连字符）' })
+  toolKey: string;
+
+  @ApiProperty({ description: '工具名称' })
+  @IsString()
+  @MaxLength(100)
+  name: string;
+
+  @ApiProperty({ description: '工具类型', enum: TOOL_TYPES })
+  @IsString()
+  @IsIn(TOOL_TYPES as unknown as string[])
+  type: string;
+
+  @ApiPropertyOptional({ description: '工具描述' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @ApiPropertyOptional({ description: '风险等级', enum: TOOL_RISK_LEVELS })
+  @IsOptional()
+  @IsString()
+  @IsIn(TOOL_RISK_LEVELS as unknown as string[])
+  riskLevel?: string;
+
+  @ApiPropertyOptional({ description: '是否需要人工确认' })
+  @IsOptional()
+  @IsBoolean()
+  requireConfirm?: boolean;
+}
+
+/** 同步注册表工具清单入参 */
+export class SyncRegistryDto {
+  @ApiProperty({ description: '注册表工具清单', type: [RegistryToolItemDto] })
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => RegistryToolItemDto)
+  tools: RegistryToolItemDto[];
 }
 

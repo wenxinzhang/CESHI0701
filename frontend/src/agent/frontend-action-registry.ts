@@ -38,8 +38,35 @@ export interface FrontendAction<TArgs = Record<string, unknown>, TData = unknown
   riskLevel: ActionRiskLevel
   /** 是否需要用户二次确认（high 风险应为 true） */
   requireConfirmation: boolean
+  /** 治理类型（映射后端工具类型 cli/api/database/filesystem/page/browser/external）；缺省按 page 归类 */
+  toolType?: string
   /** 执行处理器：接收参数，返回执行结果 */
   execute: (args: TArgs) => Promise<ActionResult<TData>> | ActionResult<TData>
+}
+
+/** 单个工具的治理设置（来自「工具权限」页） */
+export interface ToolGovernance {
+  /** 是否启用（false = 不向模型下发该工具） */
+  enabled: boolean
+  /** 治理侧要求二次确认（覆盖 action.requireConfirmation 的 false） */
+  requireConfirm: boolean
+}
+
+/**
+ * 治理映射：registry 名（点号名，如 ui.openWeb）→ 治理设置。
+ * 由 tool-governance 同步后写入。未在映射中的工具默认放行（fail-open，保证可用）。
+ */
+const governance = new Map<string, ToolGovernance>()
+
+/** 写入治理映射（覆盖式，键为 registry 点号名） */
+export function setToolGovernance(map: Record<string, ToolGovernance>): void {
+  governance.clear()
+  for (const [name, g] of Object.entries(map)) governance.set(name, g)
+}
+
+/** 读取某工具的治理设置（无则返回 undefined，表示未治理 = 放行） */
+export function getToolGovernance(name: string): ToolGovernance | undefined {
+  return governance.get(name)
 }
 
 /** 注册表：name -> action（reactive 以便工具列表随注册/注销响应式更新） */
@@ -78,6 +105,11 @@ export function getAction(name: string): FrontendAction | undefined {
   return registry.get(name)
 }
 
+/** 列出当前注册表全部操作（治理上报用，不按权限过滤） */
+export function listAllActions(): FrontendAction[] {
+  return Array.from(registry.values())
+}
+
 /**
  * 列出当前用户有权限的操作（无 permission 声明的一律可见）。
  * @param permissions 当前用户权限点集合
@@ -97,7 +129,10 @@ export function listAllowedActions(permissions: string[]): FrontendAction[] {
 export function toToolDefinitions(
   permissions: string[]
 ): Array<{ name: string; description: string; parameters: Record<string, unknown> }> {
-  return listAllowedActions(permissions).map((a) => ({
+  return listAllowedActions(permissions)
+    // 治理门控：被明确禁用（enabled=false）的工具不下发给模型；未治理的默认放行
+    .filter((a) => governance.get(a.name)?.enabled !== false)
+    .map((a) => ({
     // 工具名转为合法标识符：OpenAI/DeepSeek 要求 function name 匹配 ^[a-zA-Z0-9_-]{1,64}$，
     // 点号非法，故 registry 里的点号名（ui.search）在传给模型时映射为 ui__search。
     name: toWireName(a.name),

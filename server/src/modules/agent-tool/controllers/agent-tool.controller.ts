@@ -12,6 +12,7 @@ import {
   RecordToolCallDto,
   ToolCallLogQueryDto,
   ToolCheckDto,
+  SyncRegistryDto,
 } from '../dto/agent-tool.dto';
 
 /**
@@ -107,5 +108,25 @@ export class AgentToolController extends BaseController {
   @ApiOperation({ summary: '工具权限校验' })
   async check(@Body() dto: ToolCheckDto, @Admin('userId') userId: number) {
     return this.ok(await this.service.checkToolPermission(dto.toolKey, dto.action ?? 'execute', dto.payload, userId));
+  }
+
+  /**
+   * 同步前端注册表工具清单（幂等 upsert）。
+   * 聊天前端挂载时上报真实可调用工具，仅需登录（不声明 @Perms）。
+   */
+  @Post('sync-registry')
+  @ApiOperation({ summary: '同步前端注册表工具清单' })
+  async syncRegistry(@Body() dto: SyncRegistryDto) {
+    return this.ok(await this.service.syncRegistry(dto.tools));
+  }
+
+  /**
+   * 工具治理映射（toolKey → 启用/需确认）。
+   * 聊天前端下发工具前拉取，过滤禁用工具。仅需登录（不声明 @Perms）。
+   */
+  @Post('governance')
+  @ApiOperation({ summary: '工具治理映射' })
+  async governance() {
+    return this.ok(await this.service.getGovernance());
   }
 }

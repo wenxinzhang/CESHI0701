@@ -108,10 +108,47 @@ export function fetchToolCallLogs(toolKey: string, page = 1, pageSize = 10) {
   })
 }
 
+/** 上报一次工具调用日志（执行成功/失败均上报） */
+export function recordToolCall(data: {
+  toolKey: string
+  agent?: string
+  skill?: string
+  params?: Record<string, unknown>
+  success: boolean
+  durationMs?: number
+}) {
+  return request.post({ url: '/admin/agent-tool/call-log/record', data })
+}
+
 /** 工具权限校验（委托安全策略） */
 export function checkToolPermissionRemote(toolKey: string, action = 'execute', payload?: Record<string, unknown>) {
   return request.post<{ allowed: boolean; riskLevel: string; requireConfirm: boolean; reason?: string }>({
     url: '/admin/agent-tool/check',
     data: { toolKey, action, payload }
+  })
+}
+
+/** 注册表工具上报项 */
+export interface RegistryToolItem {
+  toolKey: string
+  name: string
+  type: string
+  description?: string
+  riskLevel?: string
+  requireConfirm?: boolean
+}
+
+/** 同步前端注册表工具清单到后端（幂等 upsert，保留管理员启停选择） */
+export function syncRegistryTools(tools: RegistryToolItem[]) {
+  return request.post<{ synced: number; created: number; updated: number }>({
+    url: '/admin/agent-tool/sync-registry',
+    data: { tools }
+  })
+}
+
+/** 拉取工具治理映射（toolKey → 启用/需确认） */
+export function fetchToolGovernance() {
+  return request.post<Record<string, { enabled: boolean; requireConfirm: boolean }>>({
+    url: '/admin/agent-tool/governance'
   })
 }
