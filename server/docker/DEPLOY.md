@@ -195,6 +195,20 @@ docker compose -f docker-compose.yaml --env-file .env exec mysql \
 > 说明：迁移中包含删除历史遗留表 `inspection_checklist` / `inspection_checklist_item` 的操作，
 > 全新部署无影响；旧库升级前请确认这两张表无需保留或已备份。
 
+### ⚠️ 迁移历史为空的旧库：先 resolve 基线，再更新
+
+若旧库当初是用 `prisma db push` 建的（表齐全但**迁移历史表 `_prisma_migrations` 为空或不存在**），
+直接跑 `migrate deploy` 会试图重建已存在的表而报“表已存在”。此类库**首次更新前必须先执行一次**
+（只写迁移历史、不执行 SQL）：
+
+```bash
+docker compose -f docker-compose.yaml --env-file .env exec backend \
+  ./node_modules/.bin/prisma migrate resolve --applied 20260530000000_baseline_squash
+```
+
+判断方法：容器内 `prisma migrate status`，若提示基线未应用但表已存在，即属此情况。
+全新空库无需此步。详见 `prisma/migrations/README.md`。
+
 ---
 
 ## 九、用域名访问（通过服务器已有 nginx 反向代理）
