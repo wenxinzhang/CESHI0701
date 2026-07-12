@@ -70,6 +70,18 @@ export class ModelProviderConfigController extends CrudControllerFactory(
   }
 
   /**
+   * 一次性返回全部供应商配置及其模型（脱敏）
+   * 供前端聊天面板首屏加载，单请求取全量，消除逐供应商查模型的 N+1 串行往返。
+   * 复用 list 权限点（不新增权限点，避免菜单未登记告警）。
+   */
+  @Get('all-with-models')
+  @Perms('list')
+  @ApiOperation({ summary: '一次性返回全部供应商配置及其模型（脱敏，供首屏加载）' })
+  async allWithModels() {
+    return this.ok({ list: await this.providerService.listAllWithModels() });
+  }
+
+  /**
    * 详情查询（脱敏）
    */
   @Get('detail/:id')

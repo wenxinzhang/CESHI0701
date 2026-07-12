@@ -128,25 +128,38 @@
     panel.setMobile(window.innerWidth <= MOBILE_BREAKPOINT)
   }
 
+  /** 空闲时执行（让出首屏连接给模型加载优先返回；无 requestIdleCallback 时用 setTimeout 兜底） */
+  const runWhenIdle = (fn: () => void) => {
+    const ric = (window as any).requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout: number }) => number)
+      | undefined
+    if (typeof ric === 'function') {
+      ric(fn, { timeout: 2000 })
+    } else {
+      setTimeout(fn, 200)
+    }
+  }
+
   onMounted(() => {
     updateViewport()
     window.addEventListener('resize', updateViewport)
-    // 初始化模型配置（从后端拉取配置与模型 / 恢复当前选择）
+    // 初始化模型配置（从后端拉取配置与模型 / 恢复当前选择）——首屏可见，最高优先
     void modelStore.init()
-    // 初始化聊天个人设置（对话参数 / 界面偏好 / 提示词模板）
+    // 初始化聊天个人设置（对话参数 / 界面偏好 / 提示词模板）——影响面板渲染，保持即时
     void chatSettingStore.init()
-    // 从后端拉取当前用户的历史会话列表（Markdown 文件存储）
-    void chatStore.initSessions()
-    // 注册全局页面导航工具（ui.navigate，跨页面可用）
-    registerNavTools()
-    // 注册全局记忆建议工具（memory.suggest，跨页面可用）
-    registerMemoryTools()
-    // 注册全局网页工具（ui.openWeb 打开网页 / web.readPage 读取正文，跨页面可用）
-    registerWebTools()
-    // 先注册同步全局工具 → 再拉技能工具 → 最后同步工具治理（上报清单+拉启用/确认映射）。
-    // syncToolGovernance 须在技能工具注册完成后执行，才能把技能一并上报到「工具权限」页。
-    void syncSkillTools().finally(() => {
-      void syncToolGovernance()
+    // 注册全局工具（本地同步注册，无网络开销）
+    registerNavTools() // ui.navigate 页面导航
+    registerMemoryTools() // memory.suggest 记忆建议
+    registerWebTools() // ui.openWeb / web.readPage 网页工具
+    // 以下为非首屏必需的网络初始化，错峰到空闲时执行，让模型请求优先占用连接池：
+    runWhenIdle(() => {
+      // 从后端拉取当前用户的历史会话列表（Markdown 文件存储）
+      void chatStore.initSessions()
+      // 先注册同步全局工具 → 再拉技能工具 → 最后同步工具治理（上报清单+拉启用/确认映射）。
+      // syncToolGovernance 须在技能工具注册完成后执行，才能把技能一并上报到「工具权限」页。
+      void syncSkillTools().finally(() => {
+        void syncToolGovernance()
+      })
     })
   })
 

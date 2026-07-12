@@ -71,6 +71,16 @@ export function fetchModelList(providerConfigId: number) {
   })
 }
 
+/**
+ * 一次性拉取全部供应商配置及其模型（脱敏），供聊天面板首屏加载。
+ * 单请求取全量，替代「provider/list + 逐个 model/list」的 N+1 串行往返。
+ */
+export function fetchAllWithModels() {
+  return request.get<{ list: ModelProviderConfig[] }>({
+    url: '/admin/model-config/provider/all-with-models'
+  })
+}
+
 /** 新增供应商配置 */
 export function addProvider(data: AddProviderPayload) {
   return request.post<ProviderConfigVo>({ url: '/admin/model-config/provider/add', data })

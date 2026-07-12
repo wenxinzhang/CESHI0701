@@ -7,11 +7,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { loadCurrentSelection, saveCurrentSelection } from '@/services/modelConfigStorage'
+import {
+  loadCurrentSelection,
+  saveCurrentSelection,
+  loadCachedConfigs,
+  saveCachedConfigs
+} from '@/services/modelConfigStorage'
 import { fetchChatSetting, saveChatSetting } from '@/api/agentSetting'
 import {
-  fetchProviderList,
-  fetchModelList,
+  fetchAllWithModels,
   addProvider,
   updateProvider,
   deleteProvider,
@@ -146,18 +150,14 @@ export const useModelConfigStore = defineStore('modelConfigStore', () => {
     )
   })
 
-  /** 从后端拉取全部配置及其模型 */
+  /** 从后端拉取全部配置及其模型（单请求聚合接口，消除逐供应商查模型的 N+1 串行往返） */
   const loadAll = async (): Promise<void> => {
-    const res = await fetchProviderList()
-    const providers = res.data?.list || []
-    // 并行拉取每个供应商的模型列表
-    const withModels = await Promise.all(
-      providers.map(async (p) => {
-        const mRes = await fetchModelList(p.id)
-        return { ...p, models: mRes.data?.list || [] } as ModelProviderConfig
-      })
+    const res = await fetchAllWithModels()
+    configs.value = (res.data?.list || []).map(
+      (c) => ({ ...c, models: c.models || [] }) as ModelProviderConfig
     )
-    configs.value = withModels
+    // 落本机缓存，供下次首屏 stale-while-revalidate 快速回填
+    saveCachedConfigs(configs.value)
     // 校正左侧选中项
     if (!configs.value.some((c) => c.id === activeConfigId.value)) {
       activeConfigId.value = configs.value[0]?.id ?? null
@@ -174,6 +174,15 @@ export const useModelConfigStore = defineStore('modelConfigStore', () => {
     if (initialized.value) return
     // 先用本机缓存快速回填，避免首屏等待后端
     currentSelection.value = loadCurrentSelection()
+    // 缓存命中则立即回填模型列表，使下拉瞬间渲染；随后 loadAll 后台刷新覆盖为最新（stale-while-revalidate）
+    const cached = loadCachedConfigs()
+    if (cached && cached.length > 0) {
+      configs.value = cached
+      if (!configs.value.some((c) => c.id === activeConfigId.value)) {
+        activeConfigId.value = configs.value[0]?.id ?? null
+      }
+      ensureValidSelection()
+    }
     try {
       await loadAll()
       // 后端选择为权威值：读取成功且有效则覆盖本机缓存

@@ -76,6 +76,25 @@ export class ModelProviderConfigService extends BaseService {
   }
 
   /**
+   * 一次性返回全部启用/停用供应商配置及其模型（脱敏）。
+   * 供前端聊天面板首屏加载：单查询 include 模型，消除「先查供应商列表、再逐个查模型」的 N+1 串行往返。
+   * 安全：每个供应商仍走 toSafe 剔除 apiKeyCipher，仅暴露 hasApiKey；模型不含敏感字段，原样带出。
+   * 排序：供应商与模型均按 sort 升序，与配置管理页/下拉现有展示顺序一致。
+   * @returns 供应商数组，每项含脱敏字段与其 models 列表
+   */
+  async listAllWithModels() {
+    const rows = await this.list(undefined, undefined, { models: true });
+    const mapped: Record<string, any>[] = (rows as any[]).map((row) => {
+      const safe = this.toSafe(row) as Record<string, any>;
+      const models = Array.isArray(row.models)
+        ? [...row.models].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+        : [];
+      return { ...safe, models };
+    });
+    return [...mapped].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  }
+
+  /**
    * 详情查询（脱敏）
    * @param id 主键
    */
