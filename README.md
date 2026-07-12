@@ -89,6 +89,13 @@ ceshi0701/
 
 > 启动前请确保 **Docker Desktop 已运行**，后端首次启动会自动拉起 MySQL / Redis 容器并建表。
 
+### 获取代码
+
+```bash
+git clone https://github.com/wenxinzhang/CESHI0701.git
+cd CESHI0701
+```
+
 ### 方式一：一键启动全栈开发环境（推荐）
 
 脚本会自动检查依赖、按需安装 `node_modules`、拉起后端容器并建表、并行启动四端服务。
@@ -126,29 +133,67 @@ deploy\start-all.cmd
 
 ### 方式二：分端手动启动
 
-**1. 启动中间件（MySQL / Redis）**
+> 手动部署适合需要精细控制端口 / 环境变量的场景。以下步骤基于仓库自带的开发配置，**请特别留意端口**：dev 容器把 MySQL 映射到宿主机 **3307**、Redis 映射到 **6380**（不是默认的 3306 / 6379）。
+
+**1. 启动中间件（MySQL + Redis）**
 
 ```bash
 cd server
-npm run docker:dev      # 仅拉起 MySQL + Redis 开发容器
+npm run docker:dev      # 拉起 server/docker/docker-compose.dev.yaml 中的 MySQL + Redis
 ```
 
-**2. 启动后端服务**
+自带的 dev 容器默认：MySQL `root/123456`、数据库 `agentpm`、宿主端口 `3307`；Redis 宿主端口 `6380`、**无密码**。
+
+**2. 安装后端依赖（先装依赖，再用 Prisma）**
 
 ```bash
 cd server
-npm install
-npm run prisma:generate     # 生成 Prisma Client
+npm install             # 必须先装依赖：package.json 已锁 Prisma 6，装完用本地 prisma 就是 6
+```
+
+> ⚠️ 不要在 `npm install` 之前直接跑 `npx prisma`，否则 npx 会临时拉取最新版（Prisma 7），与本项目不兼容。
+
+**3. 初始化数据库**
+
+```bash
+cd server
+export DATABASE_URL="mysql://root:123456@127.0.0.1:3307/agentpm"
+
+npx prisma generate         # 生成 Prisma Client
 npm run prisma:push         # 建表并同步注释
-npm run prisma:seed         # 初始化种子数据（默认管理员等）
-npm run start:dev           # 开发模式（热重载），访问 http://localhost:9001
+npm run prisma:seed         # 初始化种子数据（默认管理员 admin/123456）
 ```
 
-**3. 启动各前端**
+> 国内网络若 Prisma 二进制下载失败，先设镜像源再执行：
+> `export PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma`
+
+**4. 启动后端服务**
+
+```bash
+cd server
+
+# 关键环境变量（变量名与代码一致）
+export SERVER_PORT=9001                              # 端口被占用时改 9002 等
+export DATABASE_URL="mysql://root:123456@127.0.0.1:3307/agentpm"
+export JWT_SECRET="改成强随机值"                       # JWT 签名密钥，未配置服务无法启动
+export MODEL_CONFIG_ENC_KEY="改成强随机值"             # 模型 API Key 加密密钥，保存模型配置时必需
+export REDIS_HOST="127.0.0.1"
+export REDIS_PORT=6380                                # 对应 dev 容器映射端口
+# export REDIS_PASSWORD="..."                         # 仅当你给 Redis 设了密码才需要
+
+npm run start:dev           # 开发模式（热重载），访问 http://localhost:9001，API 文档 /docs
+```
+
+**5. 启动各前端**
+
+各前端 clone 后需从模板生成本地环境配置（Vite 只加载 `.env` / `.env.local`，不加载 `.env.example`）：
 
 ```bash
 # 前台 Web
-cd frontend && npm install && npm run dev      # http://localhost:3006
+cd frontend
+cp .env.example .env.local        # 默认 VITE_API_URL=/ 走 Vite 代理，代理目标 VITE_API_PROXY_URL
+# 若后端改了端口（如 9002），同步修改 .env.local 里的 VITE_API_PROXY_URL
+npm install && npm run dev        # http://localhost:3006
 
 # 管理端
 cd backend  && npm install && npm run dev      # http://localhost:5173
@@ -156,6 +201,8 @@ cd backend  && npm install && npm run dev      # http://localhost:5173
 # 移动端
 cd mobile   && npm install && npm run dev      # http://localhost:3000
 ```
+
+> 需要局域网 / 其他机器访问时，前端启动加 `--host`，并将访问地址里的 `localhost` 换成本机 IP。后端局域网访问见下方常见问题。
 
 ### 方式三：Docker 生产部署
 
@@ -201,6 +248,71 @@ npm run prisma:migrate  # 创建/应用数据库迁移
 npm run dev             # 开发模式
 npm run build           # 生产构建
 npm run preview         # 预览构建产物
+```
+
+## ❓ 常见问题（部署踩坑）
+
+以下为实际从 GitHub 拉取部署时遇到的高频问题与解决办法。
+
+**Q1. Prisma 报 `datasource property url is no longer supported` / schema 校验失败**
+根因：未先装依赖就跑 `npx prisma`，npx 临时拉取了 Prisma 7（本项目用 Prisma 6，不兼容）。
+解决：先在 `server/` 执行 `npm install`（`package.json` 已锁 `^6.0.0`），之后一律使用本地 prisma。必要时可显式重装：`npm install prisma@6 @prisma/client@6 --save`。
+
+**Q2. Prisma 二进制下载失败（`request to https://binaries.prisma.sh/... failed`）**
+根因：国内网络无法访问 Prisma 官方二进制源。
+解决：设镜像源后再生成：
+```bash
+export PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
+npx prisma generate
+```
+
+**Q3. 连不上数据库 / Redis**
+根因：dev 容器映射的是宿主机 **3307（MySQL）** 和 **6380（Redis）**，不是默认端口。
+解决：`DATABASE_URL` 用 `...@127.0.0.1:3307/agentpm`，`REDIS_PORT` 设 `6380`。
+
+**Q4. 端口 9001 被占用（`EADDRINUSE :::9001`）**
+根因：MinIO 或其他服务占用了 9001。
+解决：后端改端口 `export SERVER_PORT=9002`，并同步把前端 `.env.local` 的 `VITE_API_PROXY_URL` 改为 `http://localhost:9002`。
+
+**Q5. 后端启动报 `JWT_SECRET 未配置` / 保存模型配置报 `MODEL_CONFIG_ENC_KEY 未配置`**
+解决：启动前设置这两个密钥环境变量：
+```bash
+export JWT_SECRET="改成强随机值"
+export MODEL_CONFIG_ENC_KEY="改成强随机值"
+```
+
+**Q6. Redis 认证失败（`NOAUTH Authentication required`）**
+根因：你给 Redis 设了密码，但后端没配。
+解决：保持两端一致——若在 compose 中用 `command: redis-server --requirepass 123456` 设了密码，后端就要 `export REDIS_PASSWORD="123456"`；仓库自带 dev 容器默认无密码，可不设。
+
+**Q7. 前端提示 `use --host to expose` / 局域网访问不了前端**
+解决：启动前端时加 `--host`，例如 `npx vite --port 3006 --host`。
+
+**Q8. 前端请求跨域或 404**
+根因：前端直连后端、绕过了 Vite 代理。
+解决：`.env.local` 中 `VITE_API_URL=/`（走相对路径 + Vite 代理），`VITE_API_PROXY_URL` 指向后端地址。
+
+**Q9. 其他机器 / 外网访问不到后端**
+根因：NestJS 默认只监听 localhost。
+解决：编辑 `server/src/main.ts`，将 `await app.listen(port);` 改为 `await app.listen(port, '0.0.0.0');`，并把访问地址里的 `localhost` 换成服务器 IP（如 `192.168.0.121`）。
+
+## 📋 完整环境变量清单
+
+```bash
+# ===== 后端（server/）=====
+export SERVER_PORT=9001                                   # 端口，被占用可改 9002
+export DATABASE_URL="mysql://root:123456@127.0.0.1:3307/agentpm"
+export JWT_SECRET="改成强随机值"                            # JWT 签名密钥（必需）
+export MODEL_CONFIG_ENC_KEY="改成强随机值"                  # 模型 API Key 加密密钥（保存模型配置时必需）
+export REDIS_HOST="127.0.0.1"
+export REDIS_PORT=6380                                     # 对应 dev 容器映射端口
+# export REDIS_PASSWORD="123456"                           # 仅当 Redis 设了密码
+# export CORS_ORIGINS="http://192.168.0.121:3006"          # 生产限定允许来源（可选）
+
+# ===== 前端（frontend/.env.local）=====
+# VITE_API_URL=/
+# VITE_PORT=3006
+# VITE_API_PROXY_URL=http://localhost:9001                 # 后端改端口时同步修改
 ```
 
 ## ⚠️ 安全提示
