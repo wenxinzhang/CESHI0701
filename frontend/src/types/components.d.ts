@@ -112,6 +112,7 @@ declare module 'vue' {
     ElTree: typeof import('element-plus/es')['ElTree']
     ElTreeSelect: typeof import('element-plus/es')['ElTreeSelect']
     ElWatermark: typeof import('element-plus/es')['ElWatermark']
+    EmojiPicker: typeof import('./../components/core/layouts/art-agent-chat/widget/EmojiPicker.vue')['default']
     FrameworkSettings: typeof import('./../components/core/layouts/art-settings-panel/widget/FrameworkSettings.vue')['default']
     Green: typeof import('./../components/custom/dp/dw/green/index.vue')['default']
     HorizontalSubmenu: typeof import('./../components/core/layouts/art-menus/art-horizontal-menu/widget/HorizontalSubmenu.vue')['default']

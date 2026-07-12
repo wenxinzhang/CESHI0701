@@ -11,6 +11,7 @@
 
     <!-- 多行文本输入（large 变体行数更多） -->
     <ElInput
+      ref="inputRef"
       v-model="text"
       type="textarea"
       :autosize="size === 'large' ? { minRows: 3, maxRows: 8 } : { minRows: 2, maxRows: 6 }"
@@ -23,6 +24,16 @@
     <!-- 工具行 -->
     <div class="input-toolbar">
       <div class="toolbar-left">
+        <!-- 表情选择器：点击弹出分组表情面板，插入到光标处 -->
+        <ElPopover trigger="click" placement="top-start" :width="308">
+          <template #reference>
+            <button class="tool-btn" type="button" aria-label="插入表情">
+              <i class="iconfont-sys">&#xe7db;</i>
+            </button>
+          </template>
+          <EmojiPicker @pick="insertEmoji" />
+        </ElPopover>
+
         <!-- 快捷提示词插入（有模板时显示） -->
         <ElDropdown
           v-if="promptTemplates.length"
@@ -110,10 +121,19 @@
 <!-- PART_SCRIPT -->
 
 <script setup lang="ts">
-  import { ref, computed } from 'vue'
+  import { ref, computed, nextTick } from 'vue'
   import { storeToRefs } from 'pinia'
-  import { ElDropdown, ElDropdownMenu, ElDropdownItem, ElMessage, ElTooltip } from 'element-plus'
+  import {
+    ElInput,
+    ElDropdown,
+    ElDropdownMenu,
+    ElDropdownItem,
+    ElMessage,
+    ElTooltip,
+    ElPopover
+  } from 'element-plus'
   import ModelSelector from './ModelSelector.vue'
+  import EmojiPicker from './EmojiPicker.vue'
   import { useAgentChatSettingStore } from '@/store/modules/agentChatSetting'
   import type { AgentAttachment } from '@/types/agent'
   import type { AvailableModelGroup, CurrentModelSelection } from '@/types/model'
@@ -163,6 +183,8 @@
   }>()
 
   const fileInputRef = ref<HTMLInputElement>()
+  /** ElInput 实例引用（用于取内部 textarea 做光标处插入） */
+  const inputRef = ref<InstanceType<typeof ElInput>>()
 
   /** 快捷提示词模板（来自聊天设置 store） */
   const { promptTemplates } = storeToRefs(useAgentChatSettingStore())
@@ -172,6 +194,28 @@
     get: () => props.modelValue,
     set: (v) => emit('update:modelValue', v)
   })
+
+  /**
+   * 在光标处插入表情，保留原有内容与后续光标位置；取不到 textarea 时回退追加到末尾。
+   * @param emoji 待插入的 emoji 字符
+   */
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.value?.textarea as HTMLTextAreaElement | undefined
+    const cur = props.modelValue
+    if (!el) {
+      text.value = cur + emoji
+      return
+    }
+    const start = el.selectionStart ?? cur.length
+    const end = el.selectionEnd ?? cur.length
+    text.value = cur.slice(0, start) + emoji + cur.slice(end)
+    // 更新后恢复焦点并把光标移到插入内容之后
+    nextTick(() => {
+      el.focus()
+      const pos = start + emoji.length
+      el.setSelectionRange(pos, pos)
+    })
+  }
 
   /** 插入提示词模板：追加到当前输入末尾（非空则先补换行），保留用户已输入内容 */
   const onInsertTemplate = (id: string) => {
