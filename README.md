@@ -61,6 +61,7 @@
 | 管理端 | `backend/` | Vue 3.5 · Element Plus · Vite | 5173 |
 | 前台 Web | `frontend/` | Vue 3.5 · Element Plus · Pinia · Vite | 3006 |
 | 移动端 | `mobile/` | Vue 3 · Vant 4 · Capacitor | 3000 |
+| 浏览器插件 | `browser-extension/` | Chrome MV3 · Vue 3 · crxjs · TypeScript | — |
 
 ## 📂 目录结构
 
@@ -71,6 +72,7 @@ ceshi0701/
 ├── backend/         # 管理端：后台管理界面（Vue 3 + Element Plus）
 ├── frontend/        # 前台 Web：面向用户的 Web 端（Vue 3 + Element Plus）
 ├── mobile/          # 移动端应用（Vue 3 + Vant + Capacitor）
+├── browser-extension/ # 浏览器插件：跨网页悬浮智能体（Chrome MV3）
 ├── deploy/          # 一键启动/停止脚本（跨平台）
 ├── docs/            # 需求规格、架构图、原型与执行计划
 └── scripts/         # 辅助脚本
@@ -229,6 +231,38 @@ docker compose down           # 停止
 | `HTTP_PORT` / `HTTPS_PORT` | Nginx 对外端口 |
 
 > 详细生产部署说明见 [`server/docker/DEPLOY.md`](server/docker/DEPLOY.md)。
+
+## 🧩 浏览器插件（跨网页悬浮智能体）
+
+`browser-extension/` 是一个 **Chrome MV3 扩展**，让平台的 AG-UI 智能体从系统内部延伸到**任意网页**：在新标签打开目标站点后注入一个「悬浮智能体」，由模型自主执行搜索、点击、输入、滚动、提取内容等页面操作。属可选增强组件，不影响主系统使用。
+
+### 两种使用方式
+
+- **跨网页悬浮体（主打）**：在主系统右侧 AG-UI 智能体里输入「打开百度首页」之类指令，扩展在新标签打开该页并在右下角注入悬浮智能体；右侧会话/模型/历史随之交接，可继续让智能体在该页面上操作。
+- **原生侧边栏**：点击浏览器工具栏的扩展图标，在浏览器右侧原生侧边栏唤起 AG-UI 智能体，读取当前页面上下文并执行操作。
+
+### 构建与安装
+
+```bash
+cd browser-extension
+npm install --legacy-peer-deps
+npm run build            # 产物在 dist/；开发热更新用 npm run dev（vite build --watch）
+```
+
+加载到 Chrome：打开 `chrome://extensions` → 右上角开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `browser-extension/dist` 目录。加载后扩展会为 localhost 注入桥接脚本；首次操作外部站点（如百度）时会弹权限请求，点「允许」。
+
+> 使用前请确保**后端与前端已启动**（见上文部署），并在主系统「模型配置」中**已启用一个模型**（悬浮体大脑模式需要；无模型时回落本地意图解析）。
+
+### 安全限制
+
+- **白名单操作**：智能体只能执行预声明的 11 类页面操作，**不执行任意 JS**。
+- **敏感输入保护**：密码、验证码、银行卡、CVV 等输入框禁止自动填写。
+- **最小权限**：默认只持有 localhost 权限，访问外部站点时动态申请、用户授权后才注入。
+- **可立即停止**：悬浮体「停止 / 关闭」即时中止大脑对页面的操作。
+- **同源校验**：桥接消息校验来源，防第三方页面伪造指令。
+- ⚠️ **JWT 交接为原型取舍**：当前把业务 JWT 交接给扩展供其跨源调后端，**仅限本地原型**；生产应改为后端签发短期会话票据，不下发长期 token。
+
+> 完整说明（消息协议、目录结构、测试步骤、后续阶段规划）见 [`browser-extension/README.md`](browser-extension/README.md)。
 
 ## 🔧 常用命令
 
