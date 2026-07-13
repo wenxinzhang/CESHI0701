@@ -3,10 +3,11 @@
   <ElDialog
     :model-value="visible"
     title="智能体设置"
-    :width="'80vw'"
-    top="7vh"
+    :width="'min(94vw, 1600px)'"
+    top="6vh"
     append-to-body
     :close-on-click-modal="false"
+    :before-close="onBeforeClose"
     class="model-config-dialog"
     @update:model-value="emit('update:visible', $event)"
     @open="onDialogOpen"
@@ -107,7 +108,17 @@
   // MemoryCenter 在弹窗内 onMounted 只会触发一次（ElDialog 默认不销毁内容），
   // 故对话侧新提交的待确认记忆在重开弹窗后不会自动出现——这里补一次刷新兜住。
   watch(activeTab, (tab) => {
-    if (tab === 'memory') void agentMemoryStore.fetchAll()
+    if (tab === 'memory') {
+      if (agentMemoryStore.dirty) {
+        // 有未保存编辑：只轻量刷新待确认/统计，不重置选中与编辑缓冲（避免静默丢弃修改）；
+        // 保持当前视图模式，使保存/取消按钮仍可见可用。
+        void agentMemoryStore.refreshPendingAndStats()
+      } else {
+        // 无未保存修改：正常全量刷新，并统一回到只读预览态（覆盖上次持久化的编辑/分屏）
+        agentMemoryStore.viewMode = 'preview'
+        void agentMemoryStore.fetchAll()
+      }
+    }
     // 工具权限：每次切到该页签重新拉取工具清单/统计/分类。
     // 与 MemoryCenter 同理——ElDialog 默认不销毁内容，Tab 内 onMounted 只触发一次，
     // 且聊天面板挂载后异步同步的注册表工具需在此刷新可见，故切换时兜一次 init。
@@ -162,6 +173,26 @@
   const onSelectModel = (id: number) => {
     isAdding.value = false
     selectedModelId.value = id
+  }
+
+  /**
+   * 关闭前守卫：当前在记忆中心页签且有未保存修改时二次确认，
+   * 避免关弹窗丢失编辑内容（Esc / 右上角 × 均走此钩子）。
+   */
+  const onBeforeClose = async (done: () => void) => {
+    if (activeTab.value === 'memory' && agentMemoryStore.dirty) {
+      try {
+        await ElMessageBox.confirm('记忆中心有未保存的修改，关闭将丢失。确定关闭？', '未保存的修改', {
+          type: 'warning',
+          confirmButtonText: '放弃修改并关闭',
+          cancelButtonText: '继续编辑'
+        })
+      } catch {
+        return // 继续编辑，不关闭
+      }
+      agentMemoryStore.discardEditing()
+    }
+    done()
   }
 
   /**
@@ -270,9 +301,9 @@
 <style lang="scss">
   // 非 scoped：需作用到 ElDialog 根节点尺寸
   .model-config-dialog {
-    // 桌面端最小 1000px，窄屏回退到 95vw 防止横向溢出视口
-    min-width: min(1000px, 95vw);
-    height: 82vh;
+    // 桌面端最小 1100px，窄屏回退到 95vw 防止横向溢出视口
+    min-width: min(1100px, 95vw);
+    height: 88vh;
     margin-bottom: 0 !important;
     display: flex;
     flex-direction: column;

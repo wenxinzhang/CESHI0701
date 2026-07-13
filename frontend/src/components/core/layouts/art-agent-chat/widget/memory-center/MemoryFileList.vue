@@ -75,6 +75,7 @@
 
 <style lang="scss" scoped>
   .mfl-toggle {
+    flex-shrink: 0;
     cursor: pointer;
   }
 
@@ -155,9 +156,14 @@
     }
 
     .mfl-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
       font-size: 13px;
       font-weight: 600;
       color: var(--art-text-gray-900);
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .mfl-desc {

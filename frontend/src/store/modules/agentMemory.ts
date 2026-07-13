@@ -6,12 +6,16 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useLocalStorage } from '@vueuse/core'
 import {
   type MemoryFile,
   type PendingMemory,
   type MemoryPermission,
   type MemoryStats
 } from '@/components/core/layouts/art-agent-chat/widget/memory-center/memory-constants'
+
+/** Markdown 视图模式：编辑 / 预览 / 分屏 */
+export type MarkdownViewMode = 'edit' | 'preview' | 'split'
 import {
   fetchMemoryList,
   fetchMemoryStats,
@@ -54,6 +58,20 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
   /** 已加载过详情（versions/suggestions）的文件 key 集合 */
   const detailLoaded = ref<Set<string>>(new Set())
 
+  // ——— 编辑态缓冲（三模式共享；dirty 判定、草稿、离开保护均基于此）———
+  /** 服务器侧原文（选中文件时同步，保存/回滚成功后更新为最新） */
+  const originalContent = ref('')
+  /** 当前编辑缓冲（编辑器 v-model；预览/分屏均渲染此内容） */
+  const editingContent = ref('')
+  /** 保存中（防重复提交） */
+  const saving = ref(false)
+  /** 视图模式（持久化，全局单值；默认预览——进入记忆中心以只读预览呈现，需编辑再切「编辑/分屏」） */
+  const viewMode = useLocalStorage<MarkdownViewMode>('memory-view-mode', 'preview')
+  /** 分屏比例（编辑区占比 0.3~0.7，持久化） */
+  const splitRatio = useLocalStorage<number>('memory-split-ratio', 0.5)
+  /** 是否有未保存修改 */
+  const dirty = computed(() => editingContent.value !== originalContent.value)
+
   /** 当前选中文件对象 */
   const selected = computed<MemoryFile | null>(
     () => files.value.find((f) => f.id === selectedId.value) ?? null
@@ -83,6 +101,10 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
       if (files.value.length > 0) {
         selectedId.value = files.value[0].id
         await loadDetail(files.value[0].id)
+        syncEditBuffer()
+      } else {
+        originalContent.value = ''
+        editingContent.value = ''
       }
     } finally {
       loading.value = false
@@ -102,11 +124,32 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
     }
   }
 
-  /** 选中某文件（退出编辑态，懒加载详情） */
+  /** 把编辑缓冲同步为当前选中文件的服务器原文（切换文件/加载详情后调用） */
+  function syncEditBuffer(): void {
+    const content = selected.value?.content ?? ''
+    originalContent.value = content
+    editingContent.value = content
+  }
+
+  /** 选中某文件（退出编辑态，懒加载详情，同步编辑缓冲） */
   function select(id: string): void {
     selectedId.value = id
     editing.value = false
-    void loadDetail(id)
+    syncEditBuffer()
+    void loadDetail(id).then(() => {
+      // 详情返回可能带来更完整/最新的 content，若用户未改动则同步为最新
+      if (!dirty.value) syncEditBuffer()
+    })
+  }
+
+  /** 更新编辑缓冲（编辑器输入回传） */
+  function setEditingContent(content: string): void {
+    editingContent.value = content
+  }
+
+  /** 放弃修改：编辑缓冲回退到服务器原文 */
+  function discardEditing(): void {
+    editingContent.value = originalContent.value
   }
 
   /** 进入编辑态 */
@@ -139,16 +182,26 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
     return res.data
   }
 
-  /** 保存编辑内容（调接口，version 自增，合并返回；confirmed 透传安全确认；刷新统计） */
+  /**
+   * 保存编辑内容（调接口，version 自增，合并返回；confirmed 透传安全确认；刷新统计）
+   * 成功后把 originalContent 更新为已保存内容（dirty 归零）；失败抛出，editingContent 不动（保留用户编辑）。
+   */
   async function saveContent(content: string, confirmed?: boolean): Promise<void> {
     const file = selected.value
     if (!file) return
-    const res = await saveMemoryContent(file.id, content, confirmed)
-    mergeFile(res.data)
-    // 内容变更影响版本，标记详情需重新拉取
-    detailLoaded.value.delete(file.id)
-    editing.value = false
-    await refreshStats()
+    saving.value = true
+    try {
+      const res = await saveMemoryContent(file.id, content, confirmed)
+      mergeFile(res.data)
+      // 内容变更影响版本，标记详情需重新拉取
+      detailLoaded.value.delete(file.id)
+      editing.value = false
+      // 保存成功：原文对齐到已保存内容，dirty 归零（editingContent 保持不变）
+      originalContent.value = content
+      await refreshStats()
+    } finally {
+      saving.value = false
+    }
   }
 
   /** 更新当前文件的权限配置（调接口，合并返回） */
@@ -171,8 +224,11 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
   }): Promise<void> {
     await createMemoryApi(payload)
     await fetchAll()
-    selectedId.value = payload.memoryKey
-    await loadDetail(payload.memoryKey)
+    // 显式按 key 选中新文件：select 会同步编辑缓冲到该文件内容并懒加载详情，
+    // 避免"选中新文件但编辑缓冲仍停留在列表首项"的短暂不一致（fetchAll 内部默认选首项）。
+    if (files.value.some((f) => f.id === payload.memoryKey)) {
+      select(payload.memoryKey)
+    }
   }
 
   /** 删除记忆文件（调接口，刷新列表并重选） */
@@ -194,6 +250,17 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
     if (res.data) stats.value = res.data
   }
 
+  /**
+   * 轻量刷新：仅拉取统计与待确认列表，不触碰 files/选中/编辑缓冲/详情缓存。
+   * 用于"有未保存编辑时切回记忆中心页签"——既要看到聊天侧新提交的待确认记忆，
+   * 又不能像 fetchAll 那样重置选中并用服务端内容覆盖编辑缓冲（否则静默丢弃用户修改）。
+   */
+  async function refreshPendingAndStats(): Promise<void> {
+    const [statsRes, pendingRes] = await Promise.all([fetchMemoryStats(), fetchPendingList()])
+    if (statsRes.data) stats.value = statsRes.data
+    pending.value = pendingRes.data ?? []
+  }
+
   /** 回滚到指定版本（调接口：覆盖内容+version 递增+写 rollback 快照，刷新详情） */
   async function rollback(version: string, confirmed?: boolean): Promise<void> {
     const file = selected.value
@@ -204,6 +271,8 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
     // 回滚新增了版本快照，标记详情需重新拉取
     detailLoaded.value.delete(file.id)
     await loadDetail(file.id)
+    // 回滚以历史内容覆盖当前：编辑缓冲同步为回滚后的最新原文
+    syncEditBuffer()
     await refreshStats()
   }
 
@@ -256,9 +325,19 @@ export const useAgentMemoryStore = defineStore('agentMemory', () => {
     loading,
     selected,
     pendingCount,
+    originalContent,
+    editingContent,
+    saving,
+    viewMode,
+    splitRatio,
+    dirty,
+    syncEditBuffer,
+    setEditingContent,
+    discardEditing,
     fetchAll,
     loadDetail,
     refreshStats,
+    refreshPendingAndStats,
     checkWrite,
     createMemory,
     removeMemory,

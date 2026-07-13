@@ -18,10 +18,11 @@ export const NEED_CONFIRM_CODE = 'MEMORY_NEED_CONFIRM';
 /**
  * 记忆写入安全治理服务
  *
- * 记忆写入（保存/确认待确认/应用建议/自动写入）在实际改动 content 前，
- * 统一委托 SecurityCheckService.check(actionType='memory')，并与文件权限（needConfirm/canAutoWrite）
- * 取严，给出放行/需确认/需审批/拒绝的裁决。soul.md/user.md 命中 CONFIRM_MEMORY_FILES 强制确认。
- * checkWrite 仅裁决（供前端 /check 预判）；enforceWrite 按裁决放行或 fail-closed 抛错（供 service 写入前调用）。
+ * 现状：记忆文件已改为「每用户独立」个人副本，写入仅影响本人，故 create/save/confirm/apply
+ * 各写入路径均直接写库、不再调用本服务；checkWrite（供前端 /check 预判）对个人文件亦直接放行，
+ * 与真实写入行为一致。decide/enforceWrite/enforceCreate 当前无调用方，保留供未来共享/全局记忆
+ * 再启用安全裁决时复用——届时委托 SecurityCheckService.check(actionType='memory') 并与文件权限
+ *（needConfirm/canAutoWrite）取严，给出放行/需确认/需审批/拒绝的裁决。
  */
 @Injectable()
 export class MemorySecurityService {
@@ -86,8 +87,18 @@ export class MemorySecurityService {
       where: { memoryKey, OR: [{ userId: userId ?? undefined }, { userId: null }] },
     });
     if (!file) return this.notFoundDecision(memoryKey);
-    // 预览：dryRun=true，避免每次预判都写审计/建审批工单
-    return this.decide(memoryKey, text, file.riskLevel, file.needConfirm, file.canAutoWrite, userId, true);
+    // 个人文件写入无安全拦截（每用户独立，写入仅影响自己），与 create/save/confirm/apply 写入路径保持一致：
+    // 预判直接放行。否则 soul/user 等 L3 文件会被 L3 默认「需审批」误判，导致前端 guardedWrite
+    // 拦下本人可自主完成的确认写入。requireApproval/requireConfirm 的裁决保留给未来共享/全局记忆。
+    return {
+      fileExists: true,
+      allowed: true,
+      riskLevel: file.riskLevel,
+      requireApproval: false,
+      requireConfirm: false,
+      matchedPolicies: [],
+      auditRequired: false,
+    };
   }
 
   /**

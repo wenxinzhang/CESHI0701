@@ -42,14 +42,15 @@
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   .mem-stat-card {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
-    padding: 14px 16px;
+    height: 68px;
+    padding: 8px 14px;
     background: var(--art-main-bg-color);
     border: 1px solid var(--art-border-color);
     border-radius: 10px;
@@ -60,12 +61,12 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
 
     i {
-      font-size: 20px;
+      font-size: 18px;
     }
 
     // 每类卡片用不同色调区分（克制：仅图标底色）
@@ -101,19 +102,26 @@
   }
 
   .mem-stat-value {
-    margin-top: 2px;
-    font-size: 22px;
+    margin-top: 1px;
+    font-size: 18px;
     font-weight: 600;
     line-height: 1.2;
     color: var(--art-text-gray-900);
   }
 
   .mem-stat-hint {
-    margin-top: 2px;
+    margin-top: 1px;
     overflow: hidden;
     font-size: 11px;
     color: var(--art-text-gray-400);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  // 中等宽度：隐藏次要说明文字，仅保留概览数字
+  @media (max-width: 1400px) {
+    .mem-stat-hint {
+      display: none;
+    }
   }
 </style>

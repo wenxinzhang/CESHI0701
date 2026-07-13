@@ -2,7 +2,8 @@
  * 零依赖安全 Markdown 渲染器
  * 策略：全文先 HTML 转义（防 XSS），再在转义后的文本上用白名单规则拼接安全标签。
  * 不解析原生 HTML 标签，不产生任何来自用户输入的属性，代码高亮交给 v-highlight 指令。
- * 支持子集：标题、粗体、斜体、行内代码、链接、图片、有序/无序列表、表格、围栏代码块、段落。
+ * 支持子集：标题、粗体、斜体、删除线、行内代码、链接、图片、有序/无序/任务列表、
+ * 表格、围栏代码块、引用块、分割线、段落。
  */
 
 /** 允许的链接/图片协议白名单（data:image 排除可内嵌脚本的 svg+xml） */
@@ -122,6 +123,25 @@ export function renderMarkdown(source: string): string {
       const tbl: string[] = []
       while (i < lines.length && lines[i].includes('|')) tbl.push(lines[i++])
       html.push(renderTable(tbl))
+      continue
+    }
+    // 分割线 --- / *** / ___（整行 3 个及以上，允许字符间空格如 - - -，需在标题/列表之前判断）
+    if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      closeList()
+      html.push('<hr class="md-hr" />')
+      i++
+      continue
+    }
+    // 引用块 > text（连续 > 行合并，去掉前缀后按行内解析）
+    // 注意：lines 已整体 escapeHtml，行首的 > 此时是 &gt;，故正则须匹配转义后的形态
+    if (/^\s{0,3}&gt;\s?/.test(line)) {
+      closeList()
+      const quote: string[] = []
+      while (i < lines.length && /^\s{0,3}&gt;\s?/.test(lines[i])) {
+        quote.push(renderInline(lines[i].replace(/^\s{0,3}&gt;\s?/, '')))
+        i++
+      }
+      html.push(`<blockquote class="md-quote">${quote.map((q) => `<p>${q}</p>`).join('')}</blockquote>`)
       continue
     }
     // 标题 # ~ ######
