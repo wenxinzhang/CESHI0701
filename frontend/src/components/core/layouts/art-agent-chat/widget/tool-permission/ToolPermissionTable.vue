@@ -60,7 +60,7 @@
         <template #default="{ row }">
           <ElSwitch
             :model-value="(row as AgentTool).enabled"
-            @change="(v: boolean) => emit('toggle', row as AgentTool, v)"
+            @change="(v: string | number | boolean) => emit('toggle', row as AgentTool, Boolean(v))"
           />
         </template>
       </ElTableColumn>
